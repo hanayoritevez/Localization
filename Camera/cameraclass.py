@@ -2,21 +2,35 @@ import numpy as np
 import cv2
 
 
-class Pose():
-    def __init__(self,x,y,z,rot_x,rot_y,rot_z,theta):
-        self.x = x
-        self.y = y
-        self.z = z
-        self.nx = rot_x
-        self.ny = rot_y
-        self.nz = rot_z
-    
 
+
+class KeyFramePyramid():
+    def __init__(self,layers):
+        self.layerN = layers
+        self.KFs = []
+        for i in range(self.layerN):
+            kf = KeyFrame()
+            self.KFs.append(kf)
+            self.pose = np.eye(4)
+    def SetImage(self,Image):
+        scale = 1.
+        for i in range(self.layerN):
+            self.KFs[i].SetImage(cv2.resize(Image,None, None,scale, scale, cv2.INTER_NEAREST))
+            scale = scale*0.5
+            
+    def SetPose(self,Mtx):
+        self.pose = Mtx
+    
+    def GetPose(self):
+        return self.pose[3,0:3]
+    
+    def GetDirection(self):
+        return self.pose[0:3,0:3]@np.reshape(np.array([0,0,1]),[3,1])
+            
 class KeyFrame():
     def __init__(self):
         # self.kp = np.zeros(max_nums,2,layers)
         # self.kp_num = np.zeros(layers,1)
-        self.pos = Pose(0,0,0,0,0,0,0)
         self.image_size = [0,0]
         self.image = None
         self.kp = None
@@ -39,8 +53,10 @@ class KeyFrame():
         c1 = int(min([mv+sizeb,self.image_size[1]-1]))
         d1  = int(min([mu+sizeb,self.image_size[0]-1]))
         
+        
         return self.image[a1:d1,b1:c1]
     
+
 
 
         
@@ -104,7 +120,7 @@ def AllMatching(image,kp,Keyframe,size,maxdistance):
             matchvalue.append(minval)
             queindex.append(i)
                 
-    print(len(matchindex))
+
 
     # for i in range(len(matchindex)):                
     #     print(matchvalue[i]) 
@@ -112,7 +128,7 @@ def AllMatching(image,kp,Keyframe,size,maxdistance):
     MatchSort(queindex,matchindex,matchvalue,0,len(matchindex))
     
     
-    print(matchvalue[0:10])
+
     
                 
     return queindex,matchindex,matchvalue
@@ -160,5 +176,42 @@ def MatchSort(queindex,matchindex,matchvalue,startidx,endidx):
 
         MatchSort(queindex,matchindex,matchvalue,startidx,j)
         MatchSort(queindex,matchindex,matchvalue,j+1,endidx)
+        
+        
+
+
+def Get3DPoint(pts1,pts2_2img,M,K):
+    #world 座標系を自己座標系に変換するための行列
+    Mi = np.linalg.inv(M)
+    pts1out = pts1
+
+    pts1m = np.concatenate([np.array(pts1).reshape([-1,2,1]),np.ones((len(pts1),2, 1))],axis=1)
     
+    #現在座標系に変換    
+    pts1_2 = Mi@pts1m
+
+    pts1_2 = pts1_2[:,0:3,:]
     
+    olla = Mi[0:3,3]
+
+    orignpt,jac = cv2.projectPoints(olla,np.array([0,0,0],"float64").reshape([3,-1]),np.array([0,0,0],"float64").reshape([3,-1]),K,None)
+    ori =  np.array(orignpt).reshape([2,1])
+    pts1_2img,jac = cv2.projectPoints(pts1_2.transpose(0,2,1),np.array([0,0,0],"float64").reshape([3,-1]),np.array([0,0,0],"float64").reshape([3,-1]),K,None)
+    #　要はepipolar searchしている
+    print(ori)
+    print("ori")
+
+    for i in range(pts1_2img.shape[0]):
+        evec = np.array(pts1_2img[i]).reshape([2,1]) - ori
+        
+        print(evec)
+        print(pts2_2img[i])
+        # d = x - (t* evec + ori)  ddを  tで微分　d' = 0 は　 t = evec.(x-ori)/evec.evec
+        q = evec.T@(np.array(pts2_2img[i]).reshape([2,1])- ori)/evec.T@evec
+        pts1out[i] = q*pts1out[i]
+        
+        print(q)
+        
+    return pts1out
+        
+        
